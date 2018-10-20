@@ -7,6 +7,7 @@ from TargetDetector import TargetDetector
 
 arduinoPath = '/'
 BAUD_RATE = 9600
+allowableShootThreshold = 30 #euclidean distance between center of image and of avg circles found
 
 quitKey = 'q'
 
@@ -67,8 +68,8 @@ def mapServoPosition(objectCoords, imCenter, centerThreshX, centerThreshY):
     return (xTargetCentered and yTargetCentered) #both targets centered?
     
 
-def sendData(serialConnection, panAngle, tiltAngle, shoot):
-    msg = str(panAngle) + " " + str(tiltAngle) + " " + ('y' if shoot else 'n') + '\r\n'
+def sendData(serialConnection, panAngle, tiltAngle, objectIsDetected, shoot):
+    msg = str(panAngle) + " " + str(tiltAngle) + " " + ('y' if objectIsDetected else 'n') + " " + ('y' if shoot else 'n') + '\r\n'
     serialConnection.write(msg.encode('utf-8')) #TODO: DO WE NEED STRING ENCODING TO READ???
     
     
@@ -78,14 +79,20 @@ def sendData(serialConnection, panAngle, tiltAngle, shoot):
 def main():
     global centerThreshX, centerThreshY, panAngle, tiltAngle
     cap = cv2.VideoCapture(0)
-    detector = TargetDetector(200,220)#180, 225)
+    centroidDetector = TargetDetector(200,220)#180, 225)
+    circleDetector = TargetDetector(200,220) #hough circle finder
+    centroidDetector.DEBUG = True
+    circleDetector.DEBUG = False
+    
     #ser = serial.Serial(arduinoPath, BAUD_RATE)
     
     while(True):
         #capture frame-by-frame
         ret, frame = cap.read()
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        detector.colorImage = frame
+        centroidDetector.debugImage = frame
+        circleDetector.debugImage = frame
+        objectDetected = False
         #!!!!!!!!!!!!! do stuff !!!!!!!!!
         #showIm = hsv[:,:,2]
         
@@ -93,15 +100,22 @@ def main():
         #binary = detector.findTarget(hsv[:,:,1],200,255) #TODO: maybe use this and tune it
         #sat = cv2.GaussianBlur(hsv[:,:,2],(5,5),cv2.BORDER_DEFAULT)
         sat = cv2.GaussianBlur(hsv[:,:,1],(5,5),cv2.BORDER_DEFAULT)
-        obj = detector.getTargetCoordinates(sat)#hsv[:,:,1])
+        obj = centroidDetector.getTargetCoordinates(sat)#hsv[:,:,1])
+        circle = circleDetector.getCircleCoordinates(sat)
         if obj is not None:
+            objDetected = True
             coords = obj[0]
             objSize = obj[1]
             
             imCenter = (frame.shape[1]/2, frame.shape[0]/2) #cols = x, rows = x
-            shoot = mapServoPosition(coords, imCenter, centerThreshX, centerThreshY)
-            #TODO: ONLY SHOOT WHEN WE ARE CENTERED AND THEN SEE A CIRCLE NEAR THE CENTER
-            #sendData(ser, panAngle, tiltAngle, shoot) #arduino do your thing
+            aimedAtCenter = mapServoPosition(coords, imCenter, centerThreshX, centerThreshY)
+            #ONLY SHOOT WHEN WE ARE CENTERED AND THEN SEE A CIRCLE NEAR THE CENTER
+            if (aimedAtCenter and (circle is not None) and (distance(circle, imCenter) <= allowableShootThreshold)):
+                shoot = True
+            else:
+                shoot = False
+            
+        #sendData(ser, panAngle, tiltAngle, objDetected, shoot) #arduino do your thing
         
         
         
@@ -109,7 +123,7 @@ def main():
         
         #display for debug
         #showIm = cv2.cvtColor(showIm, cv2.COLOR_HSV2BGR) #convert back to bgr for display
-        cv2.imshow('frame', detector.debugImage)
+        cv2.imshow('frame', centroidDetector.debugImage)
         if cv2.waitKey(1) & 0xFF == ord(quitKey):
             break
 

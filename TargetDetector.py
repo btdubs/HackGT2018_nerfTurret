@@ -10,7 +10,7 @@ class TargetDetector:
         self.upperBound = upperBound
         self.output = []
         self.debugImage = None
-        self.colorImage = None
+        self.DEBUG = False
     
     
     
@@ -88,29 +88,26 @@ class TargetDetector:
                   minRadius=0,
                   maxRadius=0)
         #debug   
-        img = np.zeros((frame.shape[0], frame.shape[1], 3))
-        img = self.colorImage
+        img = self.debugImage
         
         avgY = -1
         avgX = -1
         if circles is not None:
             circles = np.uint16(np.around(circles))
             for i in circles[0,:]:
-                cv2.circle(img,(i[0],i[1]),i[2],(0,255,0),2)
-                cv2.circle(img,(i[0],i[1]),2,(0,0,255),3)
+                if self.DEBUG:
+                    cv2.circle(img,(i[0],i[1]),i[2],(0,255,0),2)
+                    cv2.circle(img,(i[0],i[1]),2,(0,0,255),3)
                 avgY = i[1]
                 avgX = i[0]
             avgY /= len(circles)
             avgX /= len(circles)
-        cv2.imshow('hough', img)
+            if self.DEBUG:
+                cv2.circle(img,(avgX,avgY),100,(0,255,255,4))
         
         return avgX, avgY
         
-    
-    
-    """Gets bucket location from image (hopefully in hsv format)"""
-    #returns None if no objects found or ((x,y), area) of largest object found
-    def getTargetCoordinates(self, intensity_image):
+    def getCircleCoordinates(self, intensity_image):
         binary = self.findTarget(intensity_image, self.lowerBound, self.upperBound) #image[:,:,1]
         #binary = self.filterBinaryNoise(binary)
         #do something about finding blob of object (something like SimpleBlobDetector) #TODO?
@@ -123,13 +120,31 @@ class TargetDetector:
         showIm[:,:,1] = binary
         showIm[:,:,2] = binary
         
-        #testing hough circles
+        #get those hough circles
         circleAvgX, circleAvgY = self.houghCircleFinder(intensity_image)
         if not(circleAvgX == -1 or circleAvgX == -1):
             circleSeen = True
         else:
             circleSeen = False
         
+        return (circleAvgX, circleAvgY) if (not (circleAvgX == -1 or circleAvgX == -1)) else None
+    
+    """Gets bucket location from image (hopefully in hsv format)"""
+    #returns None if no objects found or ((x,y), area) of largest object found
+    def getTargetCoordinates(self, intensity_image):
+        binary = self.findTarget(intensity_image, self.lowerBound, self.upperBound) #image[:,:,1]
+        #binary = self.filterBinaryNoise(binary)
+        #do something about finding blob of object (something like SimpleBlobDetector) #TODO?
+        #TODO: may need to do some hough circle detection instead depending on how the target looks
+        #cX, cY = findCentroidOverall(showIm)
+        maxArea, centroids = self.findMultipleCentroids(binary)
+        
+        if self.DEBUG:
+            showIm = np.zeros((binary.shape[0], binary.shape[1], 3))
+            #do some things to allow color on our binary output
+            showIm[:,:,0] = binary
+            showIm[:,:,1] = binary
+            showIm[:,:,2] = binary
         
         #find object by blob area
         largestObject = None #((x,y), area). None if we don't find anything
@@ -139,9 +154,10 @@ class TargetDetector:
             area = c[1]
             if (area == maxArea): #TODO: do we want only the largest contour?
                 largestObject = c
-                cv2.circle(showIm, (cX,cY), 5, (0, 0, 255), -1)
-                cv2.putText(showIm, "centroid", (cX - 25, cY - 25),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-        self.debugImage = showIm
+                if self.DEBUG:
+                    cv2.circle(showIm, (cX,cY), 5, (0, 0, 255), -1)
+                    cv2.putText(showIm, "centroid", (cX - 25, cY - 25),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+        self.debugImage = binary#showIm
         
         return largestObject
         
