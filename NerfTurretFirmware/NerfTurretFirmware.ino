@@ -6,6 +6,7 @@
 #define WAIT_STATE 3
 #define STOPPED 4
 
+bool debug = false;
 
 //Pin Definitions
 Servo pitchServo; //Servo for tilting mechanism
@@ -53,34 +54,43 @@ bool targetSeen;
 bool fireReady;
 
 bool isTimedOut = false;
-int lastMessageTime = millis();
+unsigned long lastMessageTime = millis();
 int state = 1;
-int startRevTime = millis();
+unsigned long startRevTime = millis();
 
 void loop() {
   // put your main code here, to run repeatedly:
 
   bool gotMessage = getMessage();
-
+  if(debug){
+    Serial.print(lastMessageTime);
+  }
   //if we haven't received a message from the NUC in a while, stop driving
   if(gotMessage) {
     isTimedOut = false;
     lastMessageTime = millis();
+    state = MOVING_STATE;
   } 
-  else if ((lastMessageTime + 1000) < millis()) {
+  else if ((lastMessageTime + 10000) < millis()) {
     isTimedOut = true;
     state = STOPPED;
-  } else{}
+  }else {}
   
   switch(state){
     case SHOOTING_STATE:  //presses and depresses the trigger
-      yeetServo.write(triggerDepress);
-      delay(100);
-      yeetServo.write(triggerRelease);
-      delay(fireRestPeriod);
-      if(!fireReady){
+      if(fireReady){
+        yeetServo.write(triggerDepress);
+        delay(100);
+        yeetServo.write(triggerRelease);
+        delay(fireRestPeriod);
+      }
+      else if(targetSeen){
+        //Stay in SHOOTING_STATE
+      }
+      else{
         state = MOVING_STATE;
       }
+      
       digitalWrite(errorLEDPin,0);
       digitalWrite(statLED0, 1);
       digitalWrite(statLED1, 1);
@@ -94,7 +104,7 @@ void loop() {
       digitalWrite(statLED1, 1);
       break;
     case WAIT_STATE:  //waits for minimum time to rev motor
-      if((millis()-startRevTime) > revTime && fireReady){
+      if((millis()-startRevTime) > revTime){
         state = SHOOTING_STATE;
       }
       digitalWrite(errorLEDPin, 0);
@@ -137,6 +147,12 @@ bool getMessage()
       yawTarget = min(maxYaw, max(yawTarget, minYaw));
       pitchTarget = min(maxPitch, max(pitchTarget, minPitch));
     }
+  }
+  if(debug){
+    Serial.print("Yaw: ");
+    Serial.print(yawTarget);
+    Serial.print("  State: ");
+    Serial.println(state);
   }
   return gotMessage;
 }
