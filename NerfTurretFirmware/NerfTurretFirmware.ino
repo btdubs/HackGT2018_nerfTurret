@@ -3,7 +3,7 @@
 #define SHOOTING_STATE 0
 #define REV_STATE 1
 #define MOVING_STATE 2
-#define WAIT_STATE 3
+#define REV_WAIT_STATE 3
 #define STOPPED 4
 
 bool debug = false;
@@ -31,8 +31,10 @@ const int maxPitch = 180;
 const int minPitch = 0;
 
 //Time Delays
-const int revTime = 1000;  //Time for shooter motor to start up
+int revTime = 1000;  //Time for shooter motor to start up
 const int fireRestPeriod = 500; //Time between shots
+
+const int timeOut = 500;
 
 void setup() {
   // put your setup code here, to run once:
@@ -58,6 +60,8 @@ unsigned long lastMessageTime = millis();
 int state = 1;
 unsigned long startRevTime = millis();
 
+unsigned long lastShotTime = 0;
+
 void loop() {
   // put your main code here, to run repeatedly:
 
@@ -69,66 +73,55 @@ void loop() {
   if(gotMessage) {
     isTimedOut = false;
     lastMessageTime = millis();
-    state = MOVING_STATE;
   } 
-  else if ((lastMessageTime + 10000) < millis()) {
+  else if ((lastMessageTime + timeOut) < millis()) {
     isTimedOut = true;
     state = STOPPED;
   }else {}
   
   switch(state){
-    case SHOOTING_STATE:  //presses and depresses the trigger
-      if(fireReady){
-        yeetServo.write(triggerDepress);
-        delay(100);
-        yeetServo.write(triggerRelease);
-        delay(fireRestPeriod);
-      }
-      else if(targetSeen){
-        //Stay in SHOOTING_STATE
-      }
-      else{
-        state = MOVING_STATE;
-      }
-      
+    case SHOOTING_STATE:  //presses and depresses the trigger 
       digitalWrite(errorLEDPin,0);
       digitalWrite(statLED0, 1);
       digitalWrite(statLED1, 1);
-      break;
-    case REV_STATE:  //starts rev of shooter motor
+      yeetServo.write(triggerDepress);
+      delay(100);
+      yeetServo.write(triggerRelease);
+      state = REV_WAIT_STATE;
       startRevTime = millis();
-      state = WAIT_STATE;
-      digitalWrite(relayPin,1);
-      digitalWrite(errorLEDPin, 0);
-      digitalWrite(statLED0, 0);
-      digitalWrite(statLED1, 1);
-      break;
-    case WAIT_STATE:  //waits for minimum time to rev motor
-      if((millis()-startRevTime) > revTime){
-        state = SHOOTING_STATE;
+      revTime = 200;
+      if(!targetSeen){
+        state = STOPPED;
       }
+      break;
+
+    case REV_WAIT_STATE:  //waits for minimum time to rev motor
       digitalWrite(errorLEDPin, 0);
       digitalWrite(statLED0, 1);
       digitalWrite(statLED1, 0);
-      break;
-    case MOVING_STATE: //aims at target based on given target angles
-      digitalWrite(relayPin,0);
-      yawServo.write(yawTarget);
-      pitchServo.write(pitchTarget);
-      if(targetSeen){
-        state = REV_STATE;
+      digitalWrite(relayPin, 0);
+      if(!targetSeen){
+        state = STOPPED;
       }
-      digitalWrite(errorLEDPin, 0);
-      digitalWrite(statLED0, 0);
-      digitalWrite(statLED1, 0);
+      else if((millis()-startRevTime) > revTime && fireReady){
+        state = SHOOTING_STATE;
+      }
       break;
     case STOPPED:
       //Serial.println("error");
+      digitalWrite(relayPin, 1);
       digitalWrite(errorLEDPin, 1);
       digitalWrite(statLED0, 0);
       digitalWrite(statLED1, 0);
+      if(!isTimedOut && targetSeen){
+        startRevTime = millis();
+        state = REV_WAIT_STATE;
+        revTime = 1000;
+      }
       break;
   }
+  yawServo.write(yawTarget);
+  pitchServo.write(pitchTarget);
 
 }
 
@@ -148,6 +141,7 @@ bool getMessage()
       pitchTarget = min(maxPitch, max(pitchTarget, minPitch));
     }
   }
+  //Serial.println("@");
   if(debug){
     Serial.print("Yaw: ");
     Serial.print(yawTarget);
